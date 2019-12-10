@@ -17,6 +17,8 @@
 package org.apache.kafka.streams.processor.internals;
 
 import java.util.List;
+
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -114,6 +116,11 @@ abstract class AbstractReadWriteDecorator<T extends StateStore, K, V> extends Wr
         @Override
         public V delete(final K key) {
             return wrapped().delete(key);
+        }
+
+        @Override
+        public <PS extends Serializer<P>, P> KeyValueIterator<K, V> prefixScan(P prefix, PS prefixKeySerializer) {
+            return null;
         }
     }
 

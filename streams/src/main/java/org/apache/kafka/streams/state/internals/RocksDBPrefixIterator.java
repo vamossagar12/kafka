@@ -17,9 +17,11 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.utils.Bytes;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.rocksdb.RocksIterator;
 
+import java.nio.ByteBuffer;
 import java.util.Set;
 
 class RocksDBPrefixIterator extends RocksDbIterator {
@@ -30,25 +32,24 @@ class RocksDBPrefixIterator extends RocksDbIterator {
                           final Set<KeyValueIterator<Bytes, byte[]>> openIterators,
                           final Bytes prefix) {
         super(name, newIterator, openIterators);
-        rawPrefix = prefix.get();
+        this.rawPrefix = prefix.get();
         newIterator.seek(rawPrefix);
     }
 
-    @Override
-    public synchronized boolean hasNext() {
-        if (!super.hasNext()) {
-            return false;
-        }
+    private boolean prefixEquals(final byte[] x, final byte[] y) {
+        final int min = Math.min(x.length, y.length);
+        final ByteBuffer xSlice = ByteBuffer.wrap(x, 0, min);
+        final ByteBuffer ySlice = ByteBuffer.wrap(y, 0, min);
+        return xSlice.equals(ySlice);
+    }
 
-        final byte[] rawNextKey = super.peekNextKey().get();
-        for (int i = 0; i < rawPrefix.length; i++) {
-            if (i == rawNextKey.length) {
-                throw new IllegalStateException("Unexpected RocksDB Key Value. Should have been skipped with seek.");
-            }
-            if (rawNextKey[i] != rawPrefix[i]) {
-                return false;
-            }
+    @Override
+    public KeyValue<Bytes, byte[]> makeNext() {
+        final KeyValue<Bytes, byte[]> next = super.makeNext();
+        if (next == null) return allDone();
+        else {
+            if (prefixEquals(this.rawPrefix, next.key.get())) return next;
+            else return allDone();
         }
-        return true;
     }
 }

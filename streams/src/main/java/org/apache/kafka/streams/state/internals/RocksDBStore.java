@@ -17,6 +17,7 @@
 package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.metrics.Sensor.RecordingLevel;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KeyValue;
@@ -305,6 +306,20 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
     }
 
     @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<Bytes, byte[]> prefixScan(P prefix, PS prefixKeySerializer) {
+        Objects.requireNonNull(prefix, "prefix cannot be null");
+        Objects.requireNonNull(prefixKeySerializer, "prefixKeySerializer cannot be null");
+
+        validateStoreOpen();
+        Bytes prefixBytes = Bytes.wrap(prefixKeySerializer.serialize(null, prefix));
+
+        final KeyValueIterator<Bytes, byte[]> rocksDbPrefixSeekIterator = dbAccessor.prefixSeek(prefixBytes);
+        openIterators.add(rocksDbPrefixSeekIterator);
+
+        return rocksDbPrefixSeekIterator;
+    }
+
+    @Override
     public synchronized KeyValueIterator<Bytes, byte[]> range(final Bytes from,
                                                               final Bytes to) {
         Objects.requireNonNull(from, "from cannot be null");
@@ -477,6 +492,8 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
                         final WriteBatch batch) throws RocksDBException;
 
         void close();
+
+        KeyValueIterator<Bytes, byte[]> prefixSeek(final Bytes prefix);
     }
 
     class SingleColumnFamilyAccessor implements RocksDBAccessor {
@@ -575,6 +592,11 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
         @Override
         public void close() {
             columnFamily.close();
+        }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> prefixSeek(Bytes prefix) {
+            return new RocksDBPrefixIterator(name, db.newIterator(columnFamily), openIterators, prefix);
         }
     }
 

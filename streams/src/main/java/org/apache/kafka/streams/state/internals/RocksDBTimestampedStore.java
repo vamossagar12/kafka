@@ -249,6 +249,11 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
             oldColumnFamily.close();
             newColumnFamily.close();
         }
+
+        @Override
+        public KeyValueIterator<Bytes, byte[]> prefixSeek(Bytes prefix) {
+            return null;
+        }
     }
 
     private class RocksDBDualCFIterator extends AbstractIterator<KeyValue<Bytes, byte[]>>

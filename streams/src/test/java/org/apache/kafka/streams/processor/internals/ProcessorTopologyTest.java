@@ -26,12 +26,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.TestInputTopic;
-import org.apache.kafka.streams.TestOutputTopic;
-import org.apache.kafka.streams.Topology;
-import org.apache.kafka.streams.TopologyTestDriver;
-import org.apache.kafka.streams.TopologyWrapper;
+import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -39,10 +34,7 @@ import org.apache.kafka.streams.processor.ProcessorSupplier;
 import org.apache.kafka.streams.processor.StreamPartitioner;
 import org.apache.kafka.streams.processor.TimestampExtractor;
 import org.apache.kafka.streams.processor.To;
-import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
-import org.apache.kafka.streams.state.KeyValueStore;
-import org.apache.kafka.streams.state.StoreBuilder;
-import org.apache.kafka.streams.state.Stores;
+import org.apache.kafka.streams.state.*;
 import org.apache.kafka.streams.test.TestRecord;
 import org.apache.kafka.test.MockProcessorSupplier;
 import org.apache.kafka.test.TestUtils;
@@ -267,6 +259,43 @@ public class ProcessorTopologyTest {
         assertTrue(outputTopic1.isEmpty());
 
         final KeyValueStore<String, String> store = driver.getKeyValueStore(storeName);
+        assertEquals("value4", store.get("key1"));
+        assertEquals("value2", store.get("key2"));
+        assertEquals("value3", store.get("key3"));
+        assertNull(store.get("key4"));
+    }
+
+    @Test
+    public void testPrefixScanStatefulTopology() {
+        final String storeName = "entries";
+        driver = new TopologyTestDriver(createStatefulTopology(storeName), props);
+        final TestInputTopic<String, String> inputTopic = driver.createInputTopic(INPUT_TOPIC_1, STRING_SERIALIZER, STRING_SERIALIZER);
+        final TestOutputTopic<Integer, String> outputTopic1 =
+                driver.createOutputTopic(OUTPUT_TOPIC_1, Serdes.Integer().deserializer(), Serdes.String().deserializer());
+
+        inputTopic.pipeInput("key1", "value1");
+        inputTopic.pipeInput("key2", "value2");
+        inputTopic.pipeInput("key3", "value3");
+        inputTopic.pipeInput("key1", "value4");
+        assertTrue(outputTopic1.isEmpty());
+
+        final KeyValueStore<String, String> store = driver.getKeyValueStore(storeName);
+        final KeyValueIterator<String, String> keysWithPrefix = store.prefixScan("key", Serdes.String().serializer());
+
+        String[] valuesWithPrefix = new String[3];
+        int numberOfKeysReturned = 0;
+
+        while (keysWithPrefix.hasNext()) {
+            KeyValue<String, String> next = keysWithPrefix.next();
+            valuesWithPrefix[numberOfKeysReturned++] = next.value;
+        }
+
+        assertEquals(3, numberOfKeysReturned);
+
+        assertEquals(valuesWithPrefix[0], "value4");
+        assertEquals(valuesWithPrefix[1], "value2");
+        assertEquals(valuesWithPrefix[2], "value3");
+
         assertEquals("value4", store.get("key1"));
         assertEquals("value2", store.get("key2"));
         assertEquals("value3", store.get("key3"));

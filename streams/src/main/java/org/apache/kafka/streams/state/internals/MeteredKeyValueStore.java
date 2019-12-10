@@ -18,6 +18,7 @@ package org.apache.kafka.streams.state.internals;
 
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.streams.KeyValue;
@@ -171,6 +172,15 @@ public class MeteredKeyValueStore<K, V>
             final String message = String.format(e.getMessage(), key);
             throw new ProcessorStateException(message, e);
         }
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<K, V> prefixScan(P prefix, PS prefixKeySerializer) {
+
+        return new MeteredKeyValueIterator(
+                wrapped().prefixScan(prefix, prefixKeySerializer),
+                rangeSensor
+        );
     }
 
     @Override

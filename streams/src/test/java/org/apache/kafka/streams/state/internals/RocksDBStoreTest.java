@@ -21,11 +21,7 @@ import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Sensor.RecordingLevel;
-import org.apache.kafka.common.serialization.Deserializer;
-import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.serialization.Serializer;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.common.serialization.*;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -56,12 +52,7 @@ import org.rocksdb.Statistics;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.easymock.EasyMock.anyObject;
@@ -308,6 +299,118 @@ public class RocksDBStoreTest {
             stringDeserializer.deserialize(
                 null,
                 rocksDBStore.get(new Bytes(stringSerializer.serialize(null, "3")))));
+    }
+
+    @Test
+    public void shouldReturnKeysWithGivenPrefix() {
+        final List<KeyValue<Bytes, byte[]>> entries = new ArrayList<>();
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "k1")),
+                stringSerializer.serialize(null, "a")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "prefix_3")),
+                stringSerializer.serialize(null, "b")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "k2")),
+                stringSerializer.serialize(null, "c")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "prefix_2")),
+                stringSerializer.serialize(null, "d")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "k3")),
+                stringSerializer.serialize(null, "e")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "prefix_1")),
+                stringSerializer.serialize(null, "f")));
+
+        rocksDBStore.init(context, rocksDBStore);
+        rocksDBStore.putAll(entries);
+        rocksDBStore.flush();
+
+        final KeyValueIterator<Bytes, byte[]> keysWithPrefix = rocksDBStore.prefixScan("prefix", stringSerializer);
+        String[] valuesWithPrefix = new String[3];
+        int numberOfKeysReturned = 0;
+
+        while (keysWithPrefix.hasNext()) {
+            KeyValue<Bytes, byte[]> next = keysWithPrefix.next();
+            valuesWithPrefix[numberOfKeysReturned++] = new String(next.value);
+        }
+        // Since there are 3 keys prefixed with prefix, the count should be 3
+        assertEquals(3, numberOfKeysReturned);
+        // The order might seem inverted to the order in which keys were inserted, but since Rocksdb stores keys
+        // lexicographically, prefix_1 would still be the first key that is returned.
+        assertEquals(valuesWithPrefix[0], "f");
+        assertEquals(valuesWithPrefix[1], "d");
+        assertEquals(valuesWithPrefix[2], "b");
+
+        // Lastly, simple key value lookups should still work :)
+        assertEquals(
+                "c",
+                stringDeserializer.deserialize(
+                        null,
+                        rocksDBStore.get(new Bytes(stringSerializer.serialize(null, "k2")))));
+
+    }
+
+    @Test
+    public void shouldReturnUUIDsWithStringPrefix() {
+        final List<KeyValue<Bytes, byte[]>> entries = new ArrayList<>();
+        Serializer<UUID> uuidSerializer = Serdes.UUID().serializer();
+        UUID uuid1 = UUID.randomUUID();
+        UUID uuid2 = UUID.randomUUID();
+        String prefix = uuid1.toString().substring(0, 4);
+        entries.add(new KeyValue<>(
+                new Bytes(uuidSerializer.serialize(null, uuid1)),
+                stringSerializer.serialize(null, "a")));
+
+        entries.add(new KeyValue<>(
+                new Bytes(uuidSerializer.serialize(null, uuid2)),
+                stringSerializer.serialize(null, "b")));
+
+
+        rocksDBStore.init(context, rocksDBStore);
+        rocksDBStore.putAll(entries);
+        rocksDBStore.flush();
+
+        final KeyValueIterator<Bytes, byte[]> keysWithPrefix = rocksDBStore.prefixScan(prefix, stringSerializer);
+        String[] valuesWithPrefix = new String[1];
+        int numberOfKeysReturned = 0;
+
+        while (keysWithPrefix.hasNext()) {
+            KeyValue<Bytes, byte[]> next = keysWithPrefix.next();
+            valuesWithPrefix[numberOfKeysReturned++] = new String(next.value);
+        }
+
+        assertEquals(1, numberOfKeysReturned);
+        assertEquals(valuesWithPrefix[0], "a");
+    }
+
+    @Test
+    public void shouldReturnNoKeys() {
+        final List<KeyValue<Bytes, byte[]>> entries = new ArrayList<>();
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "a")),
+                stringSerializer.serialize(null, "a")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "b")),
+                stringSerializer.serialize(null, "c")));
+        entries.add(new KeyValue<>(
+                new Bytes(stringSerializer.serialize(null, "c")),
+                stringSerializer.serialize(null, "e")));
+
+        rocksDBStore.init(context, rocksDBStore);
+        rocksDBStore.putAll(entries);
+        rocksDBStore.flush();
+
+        final KeyValueIterator<Bytes, byte[]> keysWithPrefix = rocksDBStore.prefixScan("d", stringSerializer);
+        int numberOfKeysReturned = 0;
+
+        while (keysWithPrefix.hasNext()) {
+            keysWithPrefix.next();
+            numberOfKeysReturned++;
+        }
+        // Since there are no keys prefixed with d, the count should be 0
+        assertEquals(0, numberOfKeysReturned);
     }
 
     @Test

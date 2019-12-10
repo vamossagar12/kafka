@@ -67,4 +67,5 @@ public interface KeyValueStore<K, V> extends StateStore, ReadOnlyKeyValueStore<K
      * @throws NullPointerException If {@code null} is used for key.
      */
     V delete(K key);
+
 }

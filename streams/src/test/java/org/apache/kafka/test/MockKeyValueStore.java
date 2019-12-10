@@ -18,6 +18,7 @@ package org.apache.kafka.test;
 
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateRestoreCallback;
@@ -108,6 +109,11 @@ public class MockKeyValueStore implements KeyValueStore<Object, Object> {
 
     @Override
     public Object delete(final Object key) {
+        return null;
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<Object, Object> prefixScan(P prefix, PS prefixKeySerializer) {
         return null;
     }
 

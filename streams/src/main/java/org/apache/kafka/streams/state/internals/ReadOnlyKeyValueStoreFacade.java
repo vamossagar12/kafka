@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.state.internals;
 
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.TimestampedKeyValueStore;
@@ -48,5 +49,10 @@ public class ReadOnlyKeyValueStoreFacade<K, V> implements ReadOnlyKeyValueStore<
     @Override
     public long approximateNumEntries() {
         return inner.approximateNumEntries();
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<K, V> prefixScan(P prefix, PS prefixKeySerializer) {
+        throw new UnsupportedOperationException();
     }
 }

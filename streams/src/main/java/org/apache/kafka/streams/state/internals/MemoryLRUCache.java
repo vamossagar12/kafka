@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.state.internals;
 
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -132,6 +133,11 @@ public class MemoryLRUCache implements KeyValueStore<Bytes, byte[]> {
     public synchronized byte[] delete(final Bytes key) {
         Objects.requireNonNull(key);
         return this.map.remove(key);
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<Bytes, byte[]> prefixScan(P prefix, PS prefixKeySerializer) {
+        return null;
     }
 
     /**

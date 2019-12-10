@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.state.internals;
 
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -87,6 +88,11 @@ public class ChangeLoggingKeyValueBytesStore
         final byte[] oldValue = wrapped().delete(key);
         log(key, null);
         return oldValue;
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<Bytes, byte[]> prefixScan(P prefix, PS prefixKeySerializer) {
+        return wrapped().prefixScan(prefix, prefixKeySerializer);
     }
 
     @Override

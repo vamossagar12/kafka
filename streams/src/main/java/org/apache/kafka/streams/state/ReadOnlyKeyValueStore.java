@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.streams.state;
 
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.errors.InvalidStateStoreException;
 
 /**
@@ -74,4 +75,16 @@ public interface ReadOnlyKeyValueStore<K, V> {
      * @throws InvalidStateStoreException if the store is not initialized
      */
     long approximateNumEntries();
+
+    /**
+     * Get an iterator over keys which have the specified prefix. The type of the prefix can be different from that of
+     * the key. That's why, callers should also pass a serializer for the prefix to convert the prefix into the
+     * format in which the keys are stored underneath in the stores
+     * @param prefix The prefix.
+     * @param prefixKeySerializer Serializer for the Prefix key type
+     * @param <PS> Prefix Serializer type
+     * @param <P> Prefix Type.
+     * @return The iterator for keys having the specified prefix.
+     */
+    <PS extends Serializer<P>, P> KeyValueIterator<K, V> prefixScan(P prefix, PS prefixKeySerializer);
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.test;
 
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateStore;
@@ -121,6 +122,11 @@ public class GenericInMemoryKeyValueStore<K extends Comparable, V>
     @Override
     public synchronized V delete(final K key) {
         return this.map.remove(key);
+    }
+
+    @Override
+    public <PS extends Serializer<P>, P> KeyValueIterator<K, V> prefixScan(P prefix, PS prefixKeySerializer) {
+        return null;
     }
 
     @Override
