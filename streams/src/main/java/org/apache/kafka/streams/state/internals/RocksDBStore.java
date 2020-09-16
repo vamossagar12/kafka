@@ -313,7 +313,7 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
         validateStoreOpen();
         Bytes prefixBytes = Bytes.wrap(prefixKeySerializer.serialize(null, prefix));
 
-        final KeyValueIterator<Bytes, byte[]> rocksDbPrefixSeekIterator = dbAccessor.prefixSeek(prefixBytes);
+        final KeyValueIterator<Bytes, byte[]> rocksDbPrefixSeekIterator = dbAccessor.prefixScan(prefixBytes);
         openIterators.add(rocksDbPrefixSeekIterator);
 
         return rocksDbPrefixSeekIterator;
@@ -493,7 +493,7 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
 
         void close();
 
-        KeyValueIterator<Bytes, byte[]> prefixSeek(final Bytes prefix);
+        KeyValueIterator<Bytes, byte[]> prefixScan(final Bytes prefix);
     }
 
     class SingleColumnFamilyAccessor implements RocksDBAccessor {
@@ -595,7 +595,7 @@ public class RocksDBStore implements KeyValueStore<Bytes, byte[]>, BatchWritingS
         }
 
         @Override
-        public KeyValueIterator<Bytes, byte[]> prefixSeek(Bytes prefix) {
+        public KeyValueIterator<Bytes, byte[]> prefixScan(Bytes prefix) {
             return new RocksDBPrefixIterator(name, db.newIterator(columnFamily), openIterators, prefix);
         }
     }

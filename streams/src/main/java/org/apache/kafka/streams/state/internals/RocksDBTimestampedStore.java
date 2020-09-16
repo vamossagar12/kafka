@@ -251,7 +251,7 @@ public class RocksDBTimestampedStore extends RocksDBStore implements Timestamped
         }
 
         @Override
-        public KeyValueIterator<Bytes, byte[]> prefixSeek(Bytes prefix) {
+        public KeyValueIterator<Bytes, byte[]> prefixScan(Bytes prefix) {
             return null;
         }
     }
