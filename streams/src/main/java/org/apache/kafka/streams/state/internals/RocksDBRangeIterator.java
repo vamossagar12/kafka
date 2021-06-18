@@ -21,6 +21,7 @@ import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.rocksdb.RocksIterator;
 
+import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.Set;
 
@@ -32,6 +33,7 @@ class RocksDBRangeIterator extends RocksDbIterator {
     private final byte[] rawLastKey;
     private final boolean forward;
     private final boolean toInclusive;
+    private final ByteBuffer directByteBuffer;
 
     RocksDBRangeIterator(final String storeName,
                          final RocksIterator iter,
@@ -44,13 +46,17 @@ class RocksDBRangeIterator extends RocksDbIterator {
         this.forward = forward;
         this.toInclusive = toInclusive;
         if (forward) {
-            iter.seek(from.get());
+            //iter.seek(from.get());
+            directByteBuffer = ByteBuffer.allocateDirect(from.get().length);
+            iter.seek(directByteBuffer);
             rawLastKey = to.get();
             if (rawLastKey == null) {
                 throw new NullPointerException("RocksDBRangeIterator: RawLastKey is null for key " + to);
             }
         } else {
-            iter.seekForPrev(to.get());
+//            iter.seekForPrev(to.get());
+            directByteBuffer = ByteBuffer.allocateDirect(to.get().length);
+            iter.seek(directByteBuffer);
             rawLastKey = from.get();
             if (rawLastKey == null) {
                 throw new NullPointerException("RocksDBRangeIterator: RawLastKey is null for key " + from);
