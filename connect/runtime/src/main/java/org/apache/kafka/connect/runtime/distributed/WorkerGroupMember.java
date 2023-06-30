@@ -125,6 +125,19 @@ public class WorkerGroupMember {
                     retryBackoffMs,
                     config.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
                     Integer.MAX_VALUE);
+
+            int maxDelay = config.getInt(DistributedConfig.SCHEDULED_REBALANCE_MAX_DELAY_MS_CONFIG);
+            // If static membership is enabled, then we would set the rebalance delay to 0 even if the config scheduled.rebalance.max.delay.ms
+            // has been set to a non-0 value. This is because we would rely on session.timeout.ms to kick out a lost worker
+            // and for transient failures, there wouldn't be any rebalances triggered. Which means whenever a rebalance
+            // is triggered, the connectors and tasks of the departed worker can be reassinged immediately since we know it is lost
+            // permanently and we don't need a follow up rebalance.
+            if (config.getString(DistributedConfig.GROUP_INSTANCE_ID_CONFIG) != null) {
+                log.debug("Static membership is enabled. The value specified for the config scheduled.rebalance.max.delay.ms " +
+                        "would be ignored and any connectors/tasks of lost worker would be reassigned immediately");
+                maxDelay = 0;
+            }
+
             this.coordinator = new WorkerCoordinator(
                     new GroupRebalanceConfig(config, GroupRebalanceConfig.ProtocolType.CONNECT),
                     logContext,
@@ -136,7 +149,7 @@ public class WorkerGroupMember {
                     configStorage,
                     listener,
                     ConnectProtocolCompatibility.compatibility(config.getString(DistributedConfig.CONNECT_PROTOCOL_CONFIG)),
-                    config.getInt(DistributedConfig.SCHEDULED_REBALANCE_MAX_DELAY_MS_CONFIG));
+                    maxDelay);
 
             AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
             log.debug("Connect group member created");

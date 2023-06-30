@@ -59,6 +59,7 @@ public class GroupRebalanceConfig {
         this.heartbeatIntervalMs = config.getInt(CommonClientConfigs.HEARTBEAT_INTERVAL_MS_CONFIG);
         this.groupId = config.getString(CommonClientConfigs.GROUP_ID_CONFIG);
 
+        /*
         // Static membership is only introduced in consumer API.
         if (protocolType == ProtocolType.CONSUMER) {
             String groupInstanceId = config.getString(CommonClientConfigs.GROUP_INSTANCE_ID_CONFIG);
@@ -68,6 +69,14 @@ public class GroupRebalanceConfig {
             } else {
                 this.groupInstanceId = Optional.empty();
             }
+        } else {
+            this.groupInstanceId = Optional.empty();
+        }*/
+
+        String groupInstanceId = config.getString(CommonClientConfigs.GROUP_INSTANCE_ID_CONFIG);
+        if (groupInstanceId != null) {
+            JoinGroupRequest.validateGroupInstanceId(groupInstanceId);
+            this.groupInstanceId = Optional.of(groupInstanceId);
         } else {
             this.groupInstanceId = Optional.empty();
         }

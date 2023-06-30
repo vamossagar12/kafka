@@ -95,6 +95,17 @@ public class DistributedConfig extends WorkerConfig {
     private static final String REBALANCE_TIMEOUT_MS_DOC = CommonClientConfigs.REBALANCE_TIMEOUT_MS_DOC;
 
     /**
+     * <code>group.instance.id</code>
+     */
+    public static final String GROUP_INSTANCE_ID_CONFIG = CommonClientConfigs.GROUP_INSTANCE_ID_CONFIG;
+
+    private static final String GROUP_INSTANCE_ID_DOC = "A unique identifier of a worker provided by the end user. "
+            + "Only non-empty strings are permitted. If set, the worker is treated as a static member, "
+            + "which means that only one instance with this ID is allowed in the cluster at any time. "
+            + "This can be used in combination with a larger session timeout to avoid group rebalances caused by transient unavailability "
+            + "(e.g. process restarts). If not set, the worker will join the group as a dynamic member, which is the traditional behavior.";
+
+    /**
      * <code>worker.sync.timeout.ms</code>
      */
     public static final String WORKER_SYNC_TIMEOUT_MS_CONFIG = "worker.sync.timeout.ms";
@@ -179,7 +190,8 @@ public class DistributedConfig extends WorkerConfig {
     public static final String SCHEDULED_REBALANCE_MAX_DELAY_MS_DOC = "The maximum delay that is "
             + "scheduled in order to wait for the return of one or more departed workers before "
             + "rebalancing and reassigning their connectors and tasks to the group. During this "
-            + "period the connectors and tasks of the departed workers remain unassigned";
+            + "period the connectors and tasks of the departed workers remain unassigned. The value set in this" +
+            " config would be ignored when static membership has been enabled.";
     public static final int SCHEDULED_REBALANCE_MAX_DELAY_MS_DEFAULT = Math.toIntExact(TimeUnit.SECONDS.toMillis(300));
 
     public static final String INTER_WORKER_KEY_GENERATION_ALGORITHM_CONFIG = "inter.worker.key.generation.algorithm";
@@ -317,6 +329,12 @@ public class DistributedConfig extends WorkerConfig {
                     Math.toIntExact(TimeUnit.SECONDS.toMillis(3)),
                     ConfigDef.Importance.HIGH,
                     HEARTBEAT_INTERVAL_MS_DOC)
+            .define(GROUP_INSTANCE_ID_CONFIG,
+                    ConfigDef.Type.STRING,
+                    null,
+                    new ConfigDef.NonEmptyString(),
+                    ConfigDef.Importance.MEDIUM,
+                    GROUP_INSTANCE_ID_DOC)
             .define(EXACTLY_ONCE_SOURCE_SUPPORT_CONFIG,
                     ConfigDef.Type.STRING,
                     EXACTLY_ONCE_SOURCE_SUPPORT_DEFAULT,
