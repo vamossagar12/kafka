@@ -77,6 +77,8 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
 
     private int numSuccessiveRevokingRebalances;
 
+    private boolean isStaticMember = false;
+
     public IncrementalCooperativeAssignor(LogContext logContext, Time time, int maxDelay) {
         this.log = logContext.logger(IncrementalCooperativeAssignor.class);
         this.time = time;
@@ -93,6 +95,11 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
         // By default, initial interval is 1. The only corner case is when the user has set maxDelay to 0
         // in which case, the exponential backoff delay should be 0 which would return the backoff delay to be 0 always
         this.consecutiveRevokingRebalancesBackoff = new ExponentialBackoff(maxDelay == 0 ? 0 : 1, 40, maxDelay, 0);
+    }
+
+    public IncrementalCooperativeAssignor(LogContext logContext, Time time, int maxDelay, boolean isStaticMember) {
+        this(logContext, time, maxDelay);
+        this.isStaticMember = isStaticMember;
     }
 
     @Override
@@ -465,9 +472,14 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
             return;
         }
 
-        if (scheduledRebalance > 0 && now >= scheduledRebalance) {
-            // delayed rebalance expired and it's time to assign resources
-            log.debug("Delayed rebalance expired. Reassigning lost tasks");
+        if ((scheduledRebalance > 0 && now >= scheduledRebalance) || isStaticMember) {
+            if (isStaticMember) {
+                // Rebalance triggered because static member didn't come back in time. Reassigning resources
+                log.debug("Static member not back within session.timeout.ms. Reassigning lost tasks");
+            } else {
+                // delayed rebalance expired and it's time to assign resources
+                log.debug("Delayed rebalance expired. Reassigning lost tasks");
+            }
             List<WorkerLoad> candidateWorkerLoad = Collections.emptyList();
             if (!candidateWorkersForReassignment.isEmpty()) {
                 candidateWorkerLoad = pickCandidateWorkerForReassignment(completeWorkerAssignment);

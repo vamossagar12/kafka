@@ -1,0 +1,11 @@
+{
+    "name" : "kafka-connect-redis",
+     "config" : {
+        "name" : "kafka-connect-redis",
+        "connector.class" : "com.github.jcustenborder.kafka.connect.redis.RedisSinkConnector",
+        "topics" : "blogpost-1,movies-1",
+        "tasks.max" : "2",
+        "key.converter" : "org.apache.kafka.connect.storage.StringConverter",
+        "value.converter" : "org.apache.kafka.connect.storage.StringConverter"
+      }
+}

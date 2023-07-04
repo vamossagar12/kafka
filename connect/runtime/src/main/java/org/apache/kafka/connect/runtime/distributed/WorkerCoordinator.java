@@ -96,7 +96,7 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
         this.listener = listener;
         this.rejoinRequested = false;
         this.protocolCompatibility = protocolCompatibility;
-        this.incrementalAssignor = new IncrementalCooperativeAssignor(logContext, time, maxDelay);
+        this.incrementalAssignor = new IncrementalCooperativeAssignor(logContext, time, maxDelay, !isDynamicMember());
         this.eagerAssignor = new EagerAssignor(logContext);
         this.currentConnectProtocol = protocolCompatibility;
         this.coordinatorDiscoveryTimeoutMs = config.heartbeatIntervalMs;
@@ -218,8 +218,12 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
                                                       String protocol,
                                                       List<JoinGroupResponseMember> allMemberMetadata,
                                                       boolean skipAssignment) {
-        if (skipAssignment)
-            throw new IllegalStateException("Can't skip assignment because Connect does not support static membership.");
+
+        // For now, we won't skip assignments as in theory
+        if (skipAssignment) {
+            //throw new IllegalStateException("Can't skip assignment because Connect does not support static membership.");
+            log.warn("Got skipAssignment as true from Group Coordinator but we will still compute it");
+        }
 
         return ConnectProtocolCompatibility.fromProtocol(protocol) == EAGER
                ? eagerAssignor.performAssignment(leaderId, protocol, allMemberMetadata, this)
