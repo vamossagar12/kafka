@@ -219,7 +219,6 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
                                                       List<JoinGroupResponseMember> allMemberMetadata,
                                                       boolean skipAssignment) {
 
-        // For now, we won't skip assignments as in theory
         if (skipAssignment) {
             //throw new IllegalStateException("Can't skip assignment because Connect does not support static membership.");
             log.warn("Got skipAssignment as true from Group Coordinator but we will still compute it");
@@ -287,6 +286,20 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
     private boolean isLeader() {
         final ExtendedAssignment localAssignmentSnapshot = assignmentSnapshot;
         return localAssignmentSnapshot != null && memberId().equals(localAssignmentSnapshot.leader());
+    }
+
+    /* If we are a leader, we should always send a LeaveGroup even if we have enabled static membership. This is
+    * to ensure we trigger a rebalance immediately and a leader is elected. This is needed because
+    * in connect the leader is responsible for more operations like creating new connectors, config updates etc
+    * and in case of static membership, if we rely on session.timeout.ms, then the cluster can remain leader-less
+    * till the leader comes back even in case of leader restarts or in the worst case, for the entire session timeout
+    * duration.
+     */
+    @Override
+    protected boolean shouldSendLeaveGroup() {
+        boolean shouldSendLeaveGroup = isLeader() || super.shouldSendLeaveGroup();
+        log.info("Departing worker is Leader:{}. Should it send LeaveGroup Request:{}", isLeader(), shouldSendLeaveGroup);
+        return shouldSendLeaveGroup;
     }
 
     public String ownerUrl(String connector) {

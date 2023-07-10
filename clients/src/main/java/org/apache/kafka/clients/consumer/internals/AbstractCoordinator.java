@@ -1139,8 +1139,7 @@ public abstract class AbstractCoordinator implements Closeable {
         // Starting from 2.3, only dynamic members will send LeaveGroupRequest to the broker,
         // consumer with valid group.instance.id is viewed as static member that never sends LeaveGroup,
         // and the membership expiration is only controlled by session timeout.
-        if (isDynamicMember() && !coordinatorUnknown() &&
-            state != MemberState.UNJOINED && generation.hasMemberId()) {
+        if (shouldSendLeaveGroup()) {
             // this is a minimal effort attempt to leave the group. we do not
             // attempt any resending if the request fails or times out.
             log.info("Member {} sending LeaveGroup request to coordinator {} due to {}",
@@ -1157,6 +1156,11 @@ public abstract class AbstractCoordinator implements Closeable {
         resetGenerationOnLeaveGroup();
 
         return future;
+    }
+
+    protected boolean shouldSendLeaveGroup() {
+        return isDynamicMember() && !coordinatorUnknown() &&
+                state != MemberState.UNJOINED && generation.hasMemberId();
     }
 
     protected boolean isDynamicMember() {
