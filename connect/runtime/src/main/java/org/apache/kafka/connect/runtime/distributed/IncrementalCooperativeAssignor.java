@@ -385,13 +385,19 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
         Map<String, Collection<String>> revokedConnectors = transformValues(revoked, ConnectorsAndTasks::connectors);
         Map<String, Collection<ConnectorTaskId>> revokedTasks = transformValues(revoked, ConnectorsAndTasks::tasks);
 
+        Map<String, Collection<String>> allAssignedConnectors = diff(nextConnectorAssignments, revokedConnectors);
+        Map<String, Collection<ConnectorTaskId>> allAssignedTasks = diff(nextTaskAssignments, revokedTasks);
+
+        log.debug("All connector assignments: {}", allAssignedConnectors);
+        log.debug("All task assignments: {}", allAssignedTasks);
+
         return new ClusterAssignment(
                 incrementalConnectorAssignments,
                 incrementalTaskAssignments,
                 revokedConnectors,
                 revokedTasks,
-                diff(nextConnectorAssignments, revokedConnectors),
-                diff(nextTaskAssignments, revokedTasks)
+                allAssignedConnectors,
+                allAssignedTasks
         );
     }
 
@@ -569,8 +575,18 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
                                                             int delay, short protocolVersion) {
         Map<String, ExtendedAssignment> groupAssignment = new HashMap<>();
         for (String member : members) {
-            Collection<String> connectorsToStart = clusterAssignment.newlyAssignedConnectors(member);
-            Collection<ConnectorTaskId> tasksToStart = clusterAssignment.newlyAssignedTasks(member);
+            Collection<String> connectorsToStart;
+            Collection<ConnectorTaskId> tasksToStart;
+            // If the leader is a static member, we will always write the entire assignment instead of incremental ones
+            // so that any rejoining static member will have all assignments provided to it via SyncGroup.
+            if (isStaticMember) {
+                log.debug("Current Member is static. Writing all connectors/task assignments instead of incremental ones.");
+                connectorsToStart = clusterAssignment.allAssignedConnectors(member);
+                tasksToStart = clusterAssignment.allAssignedTasks(member);
+            } else {
+                connectorsToStart = clusterAssignment.newlyAssignedConnectors(member);
+                tasksToStart = clusterAssignment.newlyAssignedTasks(member);
+            }
             Collection<String> connectorsToStop = clusterAssignment.newlyRevokedConnectors(member);
             Collection<ConnectorTaskId> tasksToStop = clusterAssignment.newlyRevokedTasks(member);
             ExtendedAssignment assignment =
@@ -962,8 +978,16 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
             return allAssignedConnectors;
         }
 
+        public Collection<String> allAssignedConnectors(String worker) {
+            return allAssignedConnectors.getOrDefault(worker, Collections.emptySet());
+        }
+
         public Map<String, Collection<ConnectorTaskId>> allAssignedTasks() {
             return allAssignedTasks;
+        }
+
+        public Collection<ConnectorTaskId> allAssignedTasks(String worker) {
+            return allAssignedTasks.getOrDefault(worker, Collections.emptySet());
         }
 
         public Set<String> allWorkers() {

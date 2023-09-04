@@ -203,8 +203,13 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
                 localAssignmentSnapshot.connectors().removeAll(newAssignment.revokedConnectors());
                 localAssignmentSnapshot.tasks().removeAll(newAssignment.revokedTasks());
                 log.debug("After revocations snapshot of assignment: {}", localAssignmentSnapshot);
-                newAssignment.connectors().addAll(localAssignmentSnapshot.connectors());
-                newAssignment.tasks().addAll(localAssignmentSnapshot.tasks());
+                // If Static membership is enabled, then because we write the entire assignment everytime instead of
+                // incremental assignments, the new assignments would be a superset of local assignments. Hence, we
+                // don't add the local assignments to new assignments to avoid duplicacy.
+                if (isDynamicMember()) {
+                    newAssignment.connectors().addAll(localAssignmentSnapshot.connectors());
+                    newAssignment.tasks().addAll(localAssignmentSnapshot.tasks());
+                }
             }
             log.debug("Augmented new assignment: {}", newAssignment);
         }
