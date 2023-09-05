@@ -598,7 +598,10 @@ public class KafkaStatusBackingStore extends KafkaTopicBasedBackingStore impleme
             // UNASSIGNED status is sent, then it would be ignored if the current status is RUNNING
             // at a higher generation. But since it will be followed by a RUNNING or a different
             // status message(at the lower generation) soon after, the misrepresentation of the UNASSIGNED
-            // status would be short-lived in most cases.
+            // status would be short-lived in most cases. This can also arise in case of static membership
+            // during which the temporary unavailability of a worker would not trigger a rebalance but the
+            // tasks stopped by the departing worker can have an UNASSIGNED status at the same generation
+            // as the RUNNING status.
             if (status.state() == TaskStatus.State.UNASSIGNED
                     && entry.get() != null
                     && entry.get().state() == TaskStatus.State.RUNNING
