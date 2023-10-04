@@ -186,6 +186,10 @@ public class WorkerConfig extends AbstractConfig {
             + "to create topics automatically.";
     protected static final boolean TOPIC_CREATION_ENABLE_DEFAULT = true;
 
+    public static final String STATIC_MEMBERSHIP_ENABLED = "static.membership.enabled";
+    public static final boolean STATIC_MEMBERSHIP_DEFAULT = true;
+    protected static final String STATIC_MEMBERSHIP_ENABLED_DOC = "Flag used to signify if static membership is enabled on the cluster or not";
+
     /**
      * Get a basic ConfigDef for a WorkerConfig. This includes all the common settings. Subclasses can use this to
      * bootstrap their own ConfigDef.
@@ -195,6 +199,7 @@ public class WorkerConfig extends AbstractConfig {
         ConfigDef result = new ConfigDef()
                 .define(BOOTSTRAP_SERVERS_CONFIG, Type.LIST, BOOTSTRAP_SERVERS_DEFAULT,
                         Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
+                .define(STATIC_MEMBERSHIP_ENABLED, Type.BOOLEAN, STATIC_MEMBERSHIP_DEFAULT, Importance.MEDIUM, STATIC_MEMBERSHIP_ENABLED_DOC)
                 .define(CLIENT_DNS_LOOKUP_CONFIG,
                         Type.STRING,
                         ClientDnsLookup.USE_ALL_DNS_IPS.toString(),
@@ -370,6 +375,10 @@ public class WorkerConfig extends AbstractConfig {
      */
     public boolean exactlyOnceSourceEnabled() {
         return false;
+    }
+
+    public boolean isStaticMembershipEnabled() {
+        return getBoolean(STATIC_MEMBERSHIP_ENABLED);
     }
 
     /**

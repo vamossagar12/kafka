@@ -906,6 +906,22 @@ public class DistributedHerder extends AbstractHerder implements Runnable {
     }
 
     @Override
+    public void removeWorkerFromGroup(final String groupInstanceId, final Callback<Void> callback) {
+        addRequest(
+                () -> {
+                    log.trace("Handling Worker Removal from Connect cluster. Group Instance Id: {}", groupInstanceId);
+                    if (!isLeader()) {
+                        callback.onCompletion(new NotLeaderException("Only the leader can remove workers from connect cluster.", leaderUrl()), null);
+                        return null;
+                    }
+                    worker.removeWorkerFromGroup(groupInstanceId, callback);
+                    return null;
+                },
+                forwardErrorCallback(callback)
+        );
+    }
+
+    @Override
     protected Map<String, ConfigValue> validateSinkConnectorConfig(SinkConnector connector, ConfigDef configDef, Map<String, String> config) {
         Map<String, ConfigValue> result = super.validateSinkConnectorConfig(connector, configDef, config);
         validateSinkConnectorGroupId(config, result);

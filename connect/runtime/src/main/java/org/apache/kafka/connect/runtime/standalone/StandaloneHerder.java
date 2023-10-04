@@ -279,6 +279,11 @@ public class StandaloneHerder extends AbstractHerder {
     }
 
     @Override
+    public void removeWorkerFromGroup(String groupInstanceId, Callback<Void> callback) {
+        throw new UnsupportedOperationException("Kafka Connect in standalone mode does not support static membership.");
+    }
+
+    @Override
     public synchronized void restartTask(ConnectorTaskId taskId, Callback<Void> cb) {
         if (!configState.contains(taskId.connector()))
             cb.onCompletion(new NotFoundException("Connector " + taskId.connector() + " not found", null), null);

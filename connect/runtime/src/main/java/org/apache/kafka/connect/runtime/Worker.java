@@ -26,6 +26,8 @@ import org.apache.kafka.clients.admin.DeleteConsumerGroupsOptions;
 import org.apache.kafka.clients.admin.FenceProducersOptions;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsResult;
+import org.apache.kafka.clients.admin.MemberToRemove;
+import org.apache.kafka.clients.admin.RemoveMembersFromConsumerGroupOptions;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -52,6 +54,7 @@ import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.connector.policy.ConnectorClientConfigOverridePolicy;
 import org.apache.kafka.connect.connector.policy.ConnectorClientConfigRequest;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.apache.kafka.connect.errors.IllegalWorkerStateException;
 import org.apache.kafka.connect.health.ConnectorType;
 import org.apache.kafka.connect.json.JsonConverter;
 import org.apache.kafka.connect.json.JsonConverterConfig;
@@ -732,6 +735,26 @@ public class Worker {
         }
     }
 
+    public void removeWorkerFromGroup(String groupInstanceId, Callback<Void> cb) {
+        if (!config.isStaticMembershipEnabled()) {
+            cb.onCompletion(new IllegalWorkerStateException("Cannot remove member from Connect cluster when static membership is not enabled."), null);
+        }
+        Map<String, Object> adminConfig = adminConfigs("worker-adminclient-" + workerId, config, kafkaClusterId);
+        final Admin adminClient = adminFactory.apply(adminConfig);
+        try {
+            MemberToRemove memberToRemove = new MemberToRemove(groupInstanceId);
+            KafkaFuture<Void> memberGroupRemovedFuture = adminClient.removeMembersFromConsumerGroup(
+                    config.groupId(),
+                    new RemoveMembersFromConsumerGroupOptions(Collections.singleton(memberToRemove)))
+                    .all();
+            memberGroupRemovedFuture.get(ConnectResource.DEFAULT_REST_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            cb.onCompletion(null, null);
+        } catch (ExecutionException | InterruptedException | TimeoutException e) {
+            cb.onCompletion(e, null);
+        }
+
+    }
+
     static Map<String, Object> exactlyOnceSourceTaskProducerConfigs(ConnectorTaskId id,
                                                               WorkerConfig config,
                                                               ConnectorConfig connConfig,
@@ -909,6 +932,31 @@ public class Worker {
         //add client metrics.context properties
         ConnectUtils.addMetricsContextProperties(adminProps, config, clusterId);
 
+        return adminProps;
+    }
+
+    static Map<String, Object> adminConfigs(String defaultClientId,
+                                            WorkerConfig config,
+                                            String clusterId) {
+        Map<String, Object> adminProps = new HashMap<>();
+        // Use the top-level worker configs to retain backwards compatibility with older releases which
+        // did not require a prefix for connector admin client configs in the worker configuration file
+        // Ignore configs that begin with "admin." since those will be added next (with the prefix stripped)
+        // and those that begin with "producer." and "consumer.", since we know they aren't intended for
+        // the admin client
+        Map<String, Object> nonPrefixedWorkerConfigs = config.originals().entrySet().stream()
+                .filter(e -> !e.getKey().startsWith("admin.")
+                        && !e.getKey().startsWith("producer.")
+                        && !e.getKey().startsWith("consumer."))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        adminProps.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers());
+        adminProps.put(AdminClientConfig.CLIENT_ID_CONFIG, defaultClientId);
+        adminProps.putAll(nonPrefixedWorkerConfigs);
+
+        // Admin client-specific overrides in the worker config
+        adminProps.putAll(config.originalsWithPrefix("admin."));
+        //add client metrics.context properties
+        ConnectUtils.addMetricsContextProperties(adminProps, config, clusterId);
         return adminProps;
     }
 
