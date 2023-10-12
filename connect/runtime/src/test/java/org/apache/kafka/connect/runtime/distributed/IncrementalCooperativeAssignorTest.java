@@ -52,6 +52,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -350,6 +351,7 @@ public class IncrementalCooperativeAssignorTest {
         assertConnectorAllocations(1, 1);
         assertTaskAllocations(4, 4);
         assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
 
         // Second assignment with only one worker remaining in the group. The worker that left the
         // group was a follower. No re-assignments take place immediately and the count
@@ -359,6 +361,7 @@ public class IncrementalCooperativeAssignorTest {
         assertDelay(rebalanceDelay);
         assertWorkers("worker1");
         assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
 
         time.sleep(rebalanceDelay / 2);
 
@@ -367,6 +370,7 @@ public class IncrementalCooperativeAssignorTest {
         performStandardRebalance();
         assertDelay(rebalanceDelay / 2);
         assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
 
         time.sleep(rebalanceDelay / 2 + 1);
 
@@ -376,6 +380,47 @@ public class IncrementalCooperativeAssignorTest {
         assertConnectorAllocations(2);
         assertTaskAllocations(8);
         assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
+    }
+
+    @Test
+    public void testImmediateTaskAssignmentWhenScheduledRebalanceIsPremempted() {
+        // Customize assignor for this test case
+        time = new MockTime();
+        initAssignor();
+
+        // First assignment with 2 workers and 2 connectors configured but not yet assigned
+        addNewEmptyWorkers("worker2");
+        performStandardRebalance();
+        assertDelay(0);
+        assertWorkers("worker1", "worker2");
+        assertConnectorAllocations(1, 1);
+        assertTaskAllocations(4, 4);
+        assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
+
+        // Second assignment with only one worker remaining in the group. The worker that left the
+        // group was a follower. No re-assignments take place immediately and the count
+        // down for the rebalance delay starts
+        removeWorkers("worker2");
+        performStandardRebalance();
+        assertDelay(rebalanceDelay);
+        assertWorkers("worker1");
+        assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
+
+        time.sleep(rebalanceDelay / 2);
+
+        // Mark the preemptiveScheduleRebalance flag and trigger a rebalance.
+        assignor.preemptScheduledRebalanceDelay.compareAndSet(false, true);
+        // The cluster should no longer wait for the departed worker to come back and
+        // instead assume it's gone and reassign it's tasks immediately.
+        performStandardRebalance();
+        assertDelay(0);
+        assertConnectorAllocations(2);
+        assertTaskAllocations(8);
+        assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
     }
 
     @Test
@@ -401,6 +446,7 @@ public class IncrementalCooperativeAssignorTest {
         assertDelay(rebalanceDelay);
         assertWorkers("worker1");
         assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
 
         time.sleep(rebalanceDelay / 2);
 
@@ -409,27 +455,20 @@ public class IncrementalCooperativeAssignorTest {
         performStandardRebalance();
         assertDelay(rebalanceDelay / 2);
         assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
 
         time.sleep(rebalanceDelay / 4);
 
         // Fourth assignment with the second worker returning before the delay expires
-        // Since the delay is still active, lost assignments are not reassigned yet
+        // Even though the delay is still active, lost assignments are immediately assigned
         addNewEmptyWorkers("worker2");
-        performStandardRebalance();
-        assertDelay(rebalanceDelay / 4);
-        assertWorkers("worker1", "worker2");
-        assertEmptyAssignment();
-
-        time.sleep(rebalanceDelay / 4);
-
-        // Fifth assignment with the same two workers. The delay has expired, so there
-        // should be revocations giving back the assignments to the reappearing worker
         performStandardRebalance();
         assertDelay(0);
         assertNoRevocations();
         assertConnectorAllocations(1, 1);
         assertTaskAllocations(4, 4);
         assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
     }
 
     @Test
@@ -743,6 +782,8 @@ public class IncrementalCooperativeAssignorTest {
                 .with(lostLoad.connectors(), lostLoad.tasks()).build();
 
         // Lost assignments detected - No candidate worker has appeared yet (worker with no assignments)
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(1, assignor.numLostWorkers);
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
 
@@ -758,22 +799,11 @@ public class IncrementalCooperativeAssignorTest {
 
         // A new worker (probably returning worker) has joined
         configuredAssignment.put(flakyWorker, new WorkerLoad.Builder(flakyWorker).build());
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(0, assignor.numLostWorkers);
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
-
-        assertEquals("Wrong set of workers for reassignments",
-                Collections.singleton(flakyWorker),
-                assignor.candidateWorkersForReassignment);
-        assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
-        assertEquals(rebalanceDelay, assignor.delay);
-
-        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
-        time.sleep(rebalanceDelay);
-
-        // The new worker has still no assignments
-        assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
-                new ArrayList<>(configuredAssignment.values()));
-
+        // The new worker gets all assignments w/o needing to wait for the entire rebalance delay
         assertTrue("Wrong assignment of lost connectors",
                 configuredAssignment.getOrDefault(flakyWorker, new WorkerLoad.Builder(flakyWorker).build())
                         .connectors()
@@ -785,8 +815,114 @@ public class IncrementalCooperativeAssignorTest {
         assertEquals("Wrong set of workers for reassignments",
                 Collections.emptySet(),
                 assignor.candidateWorkersForReassignment);
+        // Rebalance delay clock gets reset immediately.
         assertEquals(0, assignor.scheduledRebalance);
         assertEquals(0, assignor.delay);
+        assertFalse(assignor.preemptScheduledRebalanceDelay.get());
+    }
+
+    @Test
+    public void testLostAssignmentHandlingWhenMultipleWorkersBounce() {
+        time = new MockTime();
+        initAssignor();
+
+        assertTrue(assignor.candidateWorkersForReassignment.isEmpty());
+        assertEquals(0, assignor.scheduledRebalance);
+        assertEquals(0, assignor.delay);
+
+        Map<String, WorkerLoad> configuredAssignment = new HashMap<>();
+        configuredAssignment.put("worker0", workerLoad("worker0", 0, 2, 0, 4));
+        configuredAssignment.put("worker1", workerLoad("worker1", 2, 2, 4, 4));
+        configuredAssignment.put("worker2", workerLoad("worker2", 4, 2, 8, 4));
+
+        // No lost assignments
+        assignor.handleLostAssignments(new ConnectorsAndTasks.Builder().build(),
+            new ConnectorsAndTasks.Builder(),
+            new ArrayList<>(configuredAssignment.values()));
+
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        assertEquals(0, assignor.scheduledRebalance);
+        assertEquals(0, assignor.delay);
+
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
+
+        String flakyWorker = "worker1";
+        WorkerLoad lostLoad = configuredAssignment.remove(flakyWorker);
+        ConnectorsAndTasks lostAssignments = new ConnectorsAndTasks.Builder()
+            .with(lostLoad.connectors(), lostLoad.tasks()).build();
+
+        // Lost assignments detected - No candidate worker has appeared yet (worker with no assignments)
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(1, assignor.numLostWorkers);
+        assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
+            new ArrayList<>(configuredAssignment.values()));
+
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
+        assertEquals(rebalanceDelay, assignor.delay);
+
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
+        time.sleep(rebalanceDelay / 2);
+        rebalanceDelay /= 2;
+
+        // Another worker leaves the group
+        String anotherFlakyWorker = "worker2";
+        lostLoad = configuredAssignment.remove(anotherFlakyWorker);
+        lostAssignments = new ConnectorsAndTasks.Builder()
+            .with(lostLoad.connectors(), lostLoad.tasks()).build();
+
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(2, assignor.numLostWorkers);
+        assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
+            new ArrayList<>(configuredAssignment.values()));
+
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
+        assertEquals(rebalanceDelay, assignor.delay);
+
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
+        time.sleep(rebalanceDelay / 4);
+        rebalanceDelay /= 4;
+
+        // One of the workers has joined back
+        configuredAssignment.put(flakyWorker, new WorkerLoad.Builder(flakyWorker).build());
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(1, assignor.numLostWorkers);
+        assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
+            new ArrayList<>(configuredAssignment.values()));
+
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.singleton(flakyWorker),
+            assignor.candidateWorkersForReassignment);
+
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
+        time.sleep(rebalanceDelay / 4);
+        rebalanceDelay /= 4;
+
+        // the other departed worker comes back. The assignments should be re-assigned w/o waiting for the
+        // delay to elapse now.
+        configuredAssignment.put(anotherFlakyWorker, new WorkerLoad.Builder(anotherFlakyWorker).build());
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(0, assignor.numLostWorkers);
+        assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
+            new ArrayList<>(configuredAssignment.values()));
+
+        // The new workers get all assignments w/o needing to wait for the entire rebalance delay
+        // We are not asserting for the assignments because this test doesn't track the overall worker load
+//        assertEquals(originalConfiguredAssignment, configuredAssignment);
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        // Rebalance delay clock gets reset immediately.
+        assertEquals(0, assignor.scheduledRebalance);
+        assertEquals(0, assignor.delay);
+        assertFalse(assignor.preemptScheduledRebalanceDelay.get());
     }
 
     @Test
@@ -823,6 +959,8 @@ public class IncrementalCooperativeAssignorTest {
                 .with(lostLoad.connectors(), lostLoad.tasks()).build();
 
         // Lost assignments detected - No candidate worker has appeared yet (worker with no assignments)
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(1, assignor.numLostWorkers);
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
 
@@ -832,11 +970,13 @@ public class IncrementalCooperativeAssignorTest {
         assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
         assertEquals(rebalanceDelay, assignor.delay);
 
-        assignor.previousMembers = new HashSet<>(memberAssignments.keySet());
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
         time.sleep(rebalanceDelay / 2);
         rebalanceDelay /= 2;
 
         // No new worker has joined
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assertEquals(1, assignor.numLostWorkers);
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
 
@@ -848,6 +988,7 @@ public class IncrementalCooperativeAssignorTest {
 
         time.sleep(rebalanceDelay);
 
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
         ConnectorsAndTasks.Builder lostAssignmentsToReassign = new ConnectorsAndTasks.Builder();
         assignor.handleLostAssignments(lostAssignments, lostAssignmentsToReassign,
                 new ArrayList<>(configuredAssignment.values()));
@@ -861,6 +1002,8 @@ public class IncrementalCooperativeAssignorTest {
                 assignor.candidateWorkersForReassignment);
         assertEquals(0, assignor.scheduledRebalance);
         assertEquals(0, assignor.delay);
+        assertFalse(assignor.preemptScheduledRebalanceDelay.get());
+        assertEquals(0, assignor.numLostWorkers);
     }
 
     @Test
@@ -992,10 +1135,12 @@ public class IncrementalCooperativeAssignorTest {
         ConnectorsAndTasks lostAssignments = new ConnectorsAndTasks.Builder()
                 .with(lostLoad.connectors(), lostLoad.tasks()).build();
 
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
         // Lost assignments detected - No candidate worker has appeared yet (worker with no assignments)
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
 
+        assertEquals(1, assignor.numLostWorkers);
         assertEquals("Wrong set of workers for reassignments",
                 Collections.emptySet(),
                 assignor.candidateWorkersForReassignment);
@@ -1008,33 +1153,59 @@ public class IncrementalCooperativeAssignorTest {
 
         // A new worker (probably returning worker) has joined
         configuredAssignment.put(veryFlakyWorker, new WorkerLoad.Builder(veryFlakyWorker).build());
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
         assignor.handleLostAssignments(lostAssignments, new ConnectorsAndTasks.Builder(),
                 new ArrayList<>(configuredAssignment.values()));
 
+        // The new worker gets all assignments w/o needing to wait for the entire rebalance delay
+        assertTrue("Wrong assignment of lost connectors",
+            configuredAssignment.getOrDefault(veryFlakyWorker, new WorkerLoad.Builder(veryFlakyWorker).build())
+                .connectors()
+                .containsAll(lostAssignments.connectors()));
+        assertTrue("Wrong assignment of lost tasks",
+            configuredAssignment.getOrDefault(veryFlakyWorker, new WorkerLoad.Builder(veryFlakyWorker).build())
+                .tasks()
+                .containsAll(lostAssignments.tasks()));
         assertEquals("Wrong set of workers for reassignments",
-                Collections.singleton(veryFlakyWorker),
-                assignor.candidateWorkersForReassignment);
-        assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
-        assertEquals(rebalanceDelay, assignor.delay);
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        assertEquals(0, assignor.numLostWorkers);
+        assertEquals(0, assignor.scheduledRebalance);
+        assertEquals(0, assignor.delay);
 
-        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
         time.sleep(rebalanceDelay);
-
-        // The returning worker leaves permanently after joining briefly during the delay
+        rebalanceDelay = DistributedConfig.SCHEDULED_REBALANCE_MAX_DELAY_MS_DEFAULT;
+        assignor.previousMembers = new HashSet<>(configuredAssignment.keySet());
+        // The returning worker leaves permanently after joining. We will have a lost worker registered.
         configuredAssignment.remove(veryFlakyWorker);
         ConnectorsAndTasks.Builder lostAssignmentsToReassign = new ConnectorsAndTasks.Builder();
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
         assignor.handleLostAssignments(lostAssignments, lostAssignmentsToReassign,
                 new ArrayList<>(configuredAssignment.values()));
 
-        assertTrue("Wrong assignment of lost connectors",
-                lostAssignmentsToReassign.build().connectors().containsAll(lostAssignments.connectors()));
-        assertTrue("Wrong assignment of lost tasks",
-                lostAssignmentsToReassign.build().tasks().containsAll(lostAssignments.tasks()));
         assertEquals("Wrong set of workers for reassignments",
-                Collections.emptySet(),
-                assignor.candidateWorkersForReassignment);
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
+        assertEquals(time.milliseconds() + rebalanceDelay, assignor.scheduledRebalance);
+        assertEquals(rebalanceDelay, assignor.delay);
+
+        // Bounced back worker is lost forever
+        time.sleep(rebalanceDelay);
+        assignor.workersLostOrRecovered(configuredAssignment.keySet());
+        assignor.handleLostAssignments(lostAssignments, lostAssignmentsToReassign,
+            new ArrayList<>(configuredAssignment.values()));
+
+        assertTrue("Wrong assignment of lost connectors",
+            lostAssignmentsToReassign.build().connectors().containsAll(lostAssignments.connectors()));
+        assertTrue("Wrong assignment of lost tasks",
+            lostAssignmentsToReassign.build().tasks().containsAll(lostAssignments.tasks()));
+        assertEquals("Wrong set of workers for reassignments",
+            Collections.emptySet(),
+            assignor.candidateWorkersForReassignment);
         assertEquals(0, assignor.scheduledRebalance);
         assertEquals(0, assignor.delay);
+        assertFalse(assignor.preemptScheduledRebalanceDelay.get());
+        assertEquals(0, assignor.numLostWorkers);
     }
 
     @Test

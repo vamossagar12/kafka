@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -76,6 +77,8 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
     private final ExponentialBackoff consecutiveRevokingRebalancesBackoff;
 
     private int numSuccessiveRevokingRebalances;
+    protected int numLostWorkers;
+    protected AtomicBoolean preemptScheduledRebalanceDelay;
 
     public IncrementalCooperativeAssignor(LogContext logContext, Time time, int maxDelay) {
         this.log = logContext.logger(IncrementalCooperativeAssignor.class);
@@ -93,6 +96,7 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
         // By default, initial interval is 1. The only corner case is when the user has set maxDelay to 0
         // in which case, the exponential backoff delay should be 0 which would return the backoff delay to be 0 always
         this.consecutiveRevokingRebalancesBackoff = new ExponentialBackoff(maxDelay == 0 ? 0 : 1, 40, maxDelay, 0);
+        this.preemptScheduledRebalanceDelay = new AtomicBoolean();
     }
 
     @Override
@@ -239,6 +243,8 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
             previousRevocation.connectors().clear();
             previousRevocation.tasks().clear();
         }
+
+        workersLostOrRecovered(memberAssignments.keySet());
 
         // Derived set: The set of deleted connectors-and-tasks is a derived set from the set
         // difference of previous - configured
@@ -388,6 +394,26 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
         );
     }
 
+    // Visible for testing
+    protected void workersLostOrRecovered(Set<String> members) {
+        if (!previousMembers.isEmpty()) {
+            // The number of workers joining this round is less than the previous round. This means we have
+            // lost some workers.
+            if (previousMembers.size() > members.size()) {
+                numLostWorkers += previousMembers.size() - members.size();
+            } else if (previousMembers.size() < members.size() && numLostWorkers > 0) {
+                // There were more workers joining this round than the previous round and there is a rebalance
+                // delay in progress. The latter condition is important as it indicates it's not a new worker joining
+                // but instead a departed worker joining back.
+                numLostWorkers -= (members.size() - previousMembers.size());
+                numLostWorkers = Math.max(numLostWorkers, 0);
+                if (numLostWorkers == 0) {
+                    preemptScheduledRebalanceDelay.compareAndSet(false, true);
+                }
+            }
+        }
+    }
+
     private ConnectorsAndTasks computePreviousAssignment(Map<String, ConnectorsAndTasks> toRevoke,
                                                          Map<String, Collection<String>> connectorAssignments,
                                                          Map<String, Collection<ConnectorTaskId>> taskAssignments,
@@ -465,9 +491,17 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
             return;
         }
 
-        if (scheduledRebalance > 0 && now >= scheduledRebalance) {
-            // delayed rebalance expired and it's time to assign resources
-            log.debug("Delayed rebalance expired. Reassigning lost tasks");
+        if ((scheduledRebalance > 0 && now >= scheduledRebalance) || preemptScheduledRebalanceDelay.get()) {
+            // delayed rebalance expired or all workers joined back within scheduled rebalance delay. It's time to assign resources
+            if (preemptScheduledRebalanceDelay.get()) {
+                log.debug("All departed workers have joined back within scheduled rebalance delay expired or a pre-emptive scheduled rebalance was requested" +
+                    ". Reassigning lost tasks");
+                // The candidate workers will be empty we are pre-empting the scheduled rebalance delay.
+                candidateWorkersForReassignment.addAll(candidateWorkersForReassignment(completeWorkerAssignment));
+            } else {
+                log.debug("Delayed rebalance expired. Reassigning lost tasks");
+            }
+
             List<WorkerLoad> candidateWorkerLoad = Collections.emptyList();
             if (!candidateWorkersForReassignment.isEmpty()) {
                 candidateWorkerLoad = pickCandidateWorkerForReassignment(completeWorkerAssignment);
@@ -505,6 +539,8 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
             // Resetting the flag as now we can permit successive revoking rebalances.
             // since we have gone through the full rebalance delay
             revokedInPrevious = false;
+            preemptScheduledRebalanceDelay.compareAndSet(true, false);
+            numLostWorkers = 0;
         } else {
             candidateWorkersForReassignment
                     .addAll(candidateWorkersForReassignment(completeWorkerAssignment));
