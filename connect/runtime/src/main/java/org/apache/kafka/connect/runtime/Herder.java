@@ -153,6 +153,9 @@ public interface Herder {
      */
     void fenceZombieSourceTasks(String connName, Callback<Void> callback, InternalRequestSignature requestSignature);
 
+    // TODO: Add Javadoc
+    void triggerRebalance(String clusterId, boolean premeptScheduledRebalance, Callback<Void> callback);
+
     /**
      * Get a list of connectors currently running in this cluster.
      * @return A list of connector names

@@ -62,6 +62,8 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
     private LeaderState leaderState;
 
     private boolean rejoinRequested;
+
+    private boolean preemptScheduledRebalance;
     private volatile ConnectProtocolCompatibility currentConnectProtocol;
     private volatile int lastCompletedGenerationId;
     private final ConnectAssignor eagerAssignor;
@@ -107,6 +109,11 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
     public void requestRejoin(final String reason) {
         log.debug("Request joining group due to: {}", reason);
         rejoinRequested = true;
+    }
+
+    public void requestRejoin(final boolean preemptScheduledRebalance) {
+        this.preemptScheduledRebalance = preemptScheduledRebalance;
+        requestRejoin("Rebalance Triggered Externally");
     }
 
     @Override
@@ -207,6 +214,7 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
                 newAssignment.tasks().addAll(localAssignmentSnapshot.tasks());
             }
             log.debug("Augmented new assignment: {}", newAssignment);
+            preemptScheduledRebalance = false;
         }
         assignmentSnapshot = newAssignment;
         lastCompletedGenerationId = generation;
@@ -238,6 +246,13 @@ public class WorkerCoordinator extends AbstractCoordinator implements Closeable 
         } else {
             log.debug("Cooperative rebalance triggered. Keeping assignment {} until it's "
                       + "explicitly revoked.", localAssignmentSnapshot);
+            if (preemptScheduledRebalance) {
+                if (isLeader() && ((IncrementalCooperativeAssignor) incrementalAssignor).preemptScheduledRebalanceDelay(false, true)) {
+                    log.debug("Lost Worker(s) detected. The next round of rebalance will assign resources immediately for them.");
+                } else {
+                    this.preemptScheduledRebalance = false;
+                }
+            }
         }
         return true;
     }

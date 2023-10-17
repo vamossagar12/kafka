@@ -190,6 +190,10 @@ public class WorkerGroupMember {
         coordinator.requestRejoin("connect worker requested rejoin");
     }
 
+    public void requestRejoin(boolean preemptScheduledRebalance) {
+        coordinator.requestRejoin(preemptScheduledRebalance);
+    }
+
     public void maybeLeaveGroup(String leaveReason) {
         coordinator.maybeLeaveGroup(leaveReason);
     }

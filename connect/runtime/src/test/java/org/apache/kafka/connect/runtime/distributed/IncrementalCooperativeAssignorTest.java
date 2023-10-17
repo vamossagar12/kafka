@@ -412,7 +412,7 @@ public class IncrementalCooperativeAssignorTest {
         time.sleep(rebalanceDelay / 2);
 
         // Mark the preemptiveScheduleRebalance flag and trigger a rebalance.
-        assignor.preemptScheduledRebalanceDelay.compareAndSet(false, true);
+        assignor.preemptScheduledRebalanceDelay(false, true);
         // The cluster should no longer wait for the departed worker to come back and
         // instead assume it's gone and reassign it's tasks immediately.
         performStandardRebalance();
@@ -421,6 +421,56 @@ public class IncrementalCooperativeAssignorTest {
         assertTaskAllocations(8);
         assertBalancedAndCompleteAllocation();
         assertEquals(0, assignor.numLostWorkers);
+    }
+
+    @Test
+    public void shouldNotSetPreemptScheduledRebalanceFlagWhenNoWorkersLost() {
+        // Customize assignor for this test case
+        time = new MockTime();
+        initAssignor();
+
+        // First assignment with 2 workers and 2 connectors configured but not yet assigned
+        addNewEmptyWorkers("worker2");
+        performStandardRebalance();
+        assertDelay(0);
+        assertWorkers("worker1", "worker2");
+        assertConnectorAllocations(1, 1);
+        assertTaskAllocations(4, 4);
+        assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
+
+        removeWorkers("worker2");
+        performStandardRebalance();
+        assertDelay(rebalanceDelay);
+        assertWorkers("worker1");
+        assertEmptyAssignment();
+        assertEquals(1, assignor.numLostWorkers);
+
+        boolean preemptionResult = assignor.preemptScheduledRebalanceDelay(false, true);
+        assertTrue(preemptionResult);
+
+        preemptionResult = assignor.preemptScheduledRebalanceDelay(false, true);
+        assertFalse(preemptionResult);
+    }
+
+    @Test
+    public void shouldNotSetPreemptScheduledRebalanceFlagWhenAlreadySet() {
+        // Customize assignor for this test case
+        time = new MockTime();
+        initAssignor();
+
+        // First assignment with 2 workers and 2 connectors configured but not yet assigned
+        addNewEmptyWorkers("worker2");
+        performStandardRebalance();
+        assertDelay(0);
+        assertWorkers("worker1", "worker2");
+        assertConnectorAllocations(1, 1);
+        assertTaskAllocations(4, 4);
+        assertBalancedAndCompleteAllocation();
+        assertEquals(0, assignor.numLostWorkers);
+
+        boolean preemptionResult = assignor.preemptScheduledRebalanceDelay(false, true);
+        assertFalse(preemptionResult);
     }
 
     @Test

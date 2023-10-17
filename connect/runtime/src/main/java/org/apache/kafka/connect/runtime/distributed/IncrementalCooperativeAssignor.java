@@ -414,6 +414,10 @@ public class IncrementalCooperativeAssignor implements ConnectAssignor {
         }
     }
 
+    public boolean preemptScheduledRebalanceDelay(boolean expected, boolean updated) {
+        return numLostWorkers > 0 && preemptScheduledRebalanceDelay.compareAndSet(expected, updated);
+    }
+
     private ConnectorsAndTasks computePreviousAssignment(Map<String, ConnectorsAndTasks> toRevoke,
                                                          Map<String, Collection<String>> connectorAssignments,
                                                          Map<String, Collection<ConnectorTaskId>> taskAssignments,

@@ -25,6 +25,7 @@ import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.connect.errors.AlreadyExistsException;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.errors.NotFoundException;
 import org.apache.kafka.connect.runtime.AbstractStatus;
 import org.apache.kafka.connect.runtime.ConnectMetrics.MetricGroup;
@@ -519,7 +520,80 @@ public class DistributedHerderTest {
     }
 
     @Test
-    public void testRebalanceFailedConnector() throws Exception {
+    public void testTriggerRebalanceFailsWhenNotLeader() {
+        connectProtocolVersion = CONNECT_PROTOCOL_V1;
+
+        when(member.memberId()).thenReturn("member");
+
+        FutureCallback<Void> rebalanceTriggeringCb = new FutureCallback<>();
+        herder.triggerRebalance(HERDER_CONFIG.get(GROUP_ID_CONFIG), true, rebalanceTriggeringCb);
+
+        herder.tick();
+
+        ExecutionException exception = assertThrows(ExecutionException.class, rebalanceTriggeringCb::get);
+        assertTrue(exception.getCause() instanceof NotLeaderException);
+    }
+
+    @Test
+    public void testTriggerRebalanceFailsWhenUsingEagerAssignorWithPremeptiveScheduledFlag() {
+        when(member.memberId()).thenReturn("member");
+
+        ExtendedAssignment assignment = mock(ExtendedAssignment.class);
+        when(assignment.leader()).thenReturn("member");
+        herder.assignment = assignment;
+        FutureCallback<Void> rebalanceTriggeringCb = new FutureCallback<>();
+        herder.triggerRebalance(HERDER_CONFIG.get(GROUP_ID_CONFIG), true, rebalanceTriggeringCb);
+        herder.tick();
+        ExecutionException exception = assertThrows(ExecutionException.class, rebalanceTriggeringCb::get);
+        assertTrue(exception.getCause() instanceof DataException);
+    }
+
+    @Test
+    public void testTriggerRebalanceFailsWhenUsingIncorrectClusterId() {
+        when(member.memberId()).thenReturn("member");
+
+        ExtendedAssignment assignment = mock(ExtendedAssignment.class);
+        when(assignment.leader()).thenReturn("member");
+        herder.assignment = assignment;
+        FutureCallback<Void> rebalanceTriggeringCb = new FutureCallback<>();
+        herder.triggerRebalance("some-group-id", true, rebalanceTriggeringCb);
+        herder.tick();
+        ExecutionException exception = assertThrows(ExecutionException.class, rebalanceTriggeringCb::get);
+        assertTrue(exception.getCause() instanceof DataException);
+    }
+
+    @Test
+    public void testTriggerRebalanceTriggersRebalanceUsingIncrementalAssignor() throws Exception {
+        connectProtocolVersion = CONNECT_PROTOCOL_V1;
+        when(member.memberId()).thenReturn("member");
+        when(member.currentProtocolVersion()).thenReturn(connectProtocolVersion);
+
+        ExtendedAssignment assignment = mock(ExtendedAssignment.class);
+        when(assignment.leader()).thenReturn("member");
+        herder.assignment = assignment;
+        FutureCallback<Void> rebalanceTriggeringCb = new FutureCallback<>();
+        herder.triggerRebalance(HERDER_CONFIG.get(GROUP_ID_CONFIG), true, rebalanceTriggeringCb);
+        herder.tick();
+        rebalanceTriggeringCb.get();
+        doNothing().when(member).requestRejoin(true);
+    }
+
+    @Test
+    public void testTriggerRebalanceTriggersRebalanceUsingEagerAssignor() throws Exception {
+        when(member.memberId()).thenReturn("member");
+
+        ExtendedAssignment assignment = mock(ExtendedAssignment.class);
+        when(assignment.leader()).thenReturn("member");
+        herder.assignment = assignment;
+        FutureCallback<Void> rebalanceTriggeringCb = new FutureCallback<>();
+        herder.triggerRebalance(HERDER_CONFIG.get(GROUP_ID_CONFIG), false, rebalanceTriggeringCb);
+        herder.tick();
+        rebalanceTriggeringCb.get();
+        doNothing().when(member).requestRejoin(false);
+    }
+
+    @Test
+    public void testRebalanceFailedConnector() {
         // Join group and get assignment
         when(member.memberId()).thenReturn("member");
         when(member.currentProtocolVersion()).thenReturn(CONNECT_PROTOCOL_V0);

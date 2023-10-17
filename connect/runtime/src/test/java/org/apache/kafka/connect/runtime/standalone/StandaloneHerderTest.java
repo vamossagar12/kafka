@@ -1015,6 +1015,11 @@ public class StandaloneHerderTest {
     }
 
     @Test
+    public void testTriggerRebalanceFailsForStandaloneHerder() {
+        assertThrows(UnsupportedOperationException.class, () -> herder.triggerRebalance("config", false, new FutureCallback<>()));
+    }
+
+    @Test
     public void testModifyConnectorOffsetsConnectorNotInStoppedState() {
         PowerMock.replayAll();
 

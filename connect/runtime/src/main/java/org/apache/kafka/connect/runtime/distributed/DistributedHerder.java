@@ -34,6 +34,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.connect.connector.policy.ConnectorClientConfigOverridePolicy;
 import org.apache.kafka.connect.errors.AlreadyExistsException;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.errors.NotFoundException;
 import org.apache.kafka.connect.runtime.AbstractHerder;
 import org.apache.kafka.connect.runtime.CloseableConnectorContext;
@@ -899,6 +900,30 @@ public class DistributedHerder extends AbstractHerder implements Runnable {
                     writeToConfigTopicAsLeader(() -> configBackingStore.removeConnectorConfig(connName));
                     callback.onCompletion(null, new Created<>(false, null));
                 }
+                return null;
+            },
+            forwardErrorCallback(callback)
+        );
+    }
+
+    @Override
+    public void triggerRebalance(String clusterId, boolean premeptScheduledRebalance, Callback<Void> callback) {
+        addRequest(
+            () -> {
+                log.trace("Trigerring rebalance for connect cluster Id: {}", clusterId);
+                if (!isLeader()) {
+                    callback.onCompletion(new NotLeaderException("Only the leader can trigger a rebalance in a connect cluster.", leaderUrl()), null);
+                    return null;
+                }
+                if (premeptScheduledRebalance && member.currentProtocolVersion() == CONNECT_PROTOCOL_V0) {
+                    callback.onCompletion(new DataException("Pre emptive rebalance can not be triggered with eager assignor"), null);
+                    return null;
+                }
+                if (!clusterId.equals(config.groupId())) {
+                    callback.onCompletion(new DataException("Invalid cluster Id:" + clusterId), null);
+                }
+                member.requestRejoin(premeptScheduledRebalance);
+                callback.onCompletion(null, null);
                 return null;
             },
             forwardErrorCallback(callback)
